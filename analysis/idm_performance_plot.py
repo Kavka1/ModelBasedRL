@@ -56,30 +56,39 @@ def main(path: str, remark: str, collect_action_num: int = 16) -> None:
         a_pred_dict = idm_model(obs_tensor, next_obs_tensor)
         action_dist_seq.append(a_pred_dict)
 
-    sns.set_theme(style='white')
-    fig, axs = plt.subplots(nrows=4, ncols=4, tight_layout=True)
-    for i, ax in enumerate(axs):
-        dist = action_dist_seq[i]
-        action_samples = dist.sample_n(1000)
-        action_samples = action_samples.detach().item()
-        df = pd.DataFrame({
-            'action_dim_0': [a[0] for a in action_samples],
-            'action_dim_1': [a[1] for a in action_samples] 
-        })
-        sns.jointplot(
-            data= df,
-            x= 'action_dim_0',
-            y= 'action_dim_1',
-            kind='kde',
-            ax= ax
-        )
+    sns.set_theme(style='whitegrid')
+    fig, axs = plt.subplots(nrows=4, ncols=4, tight_layout=True, figsize=(15, 10))
+    for i in range(4):
+        for j in range(4):
+            ax = axs[i,j]
+            dist = action_dist_seq[i*4+j]
+            action_samples = dist.sample_n(1000)
+            action_samples = action_samples.detach().numpy().tolist()
+            df = pd.DataFrame({
+                'action_dim_0': [a[0] for a in action_samples], #+ [trans_seq[i*4+j][1][0]]*1000,
+                'action_dim_1': [a[1] for a in action_samples], #+ [trans_seq[i*4+j][1][1]]*1000,
+                'dist': ['pred'] * len(action_samples) #+ ['true'] * 1000
+            })
+            sns.kdeplot(
+                data= df,
+                x= 'action_dim_0',
+                y= 'action_dim_1',
+                #hue= 'dist',
+                ax= ax,
+                xlim=(-1, 1),
+                ylim=(-1, 1),
+            )
+            ax.plot([trans_seq[i*4+j][1][0]], [trans_seq[i*4+j][1][1]], '*')
+            ax.set_xlim([-1,1])
+            ax.set_ylim([-1,1])
+            ax.set_title(f'true action: {trans_seq[i*4+j][1]}', fontsize=10)
 
     plt.show()
 
 
 if __name__ == '__main__':
     main(
-        path= '/home/xukang/GitRepo/ModelBasedRL/results/',
+        path= '/home/xukang/GitRepo/ModelBasedRL/results/dmc-sac-idm_test/reacher_easy-10-05-04_00-31/',
         remark= 'best',
         collect_action_num=16
     )
