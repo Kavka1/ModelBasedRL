@@ -17,7 +17,7 @@ class IDM_learner(object):
     def __init__(self, config: Dict) -> None:
         self.lr = config['lr']
         self.device = torch.device(config['device'])
-        self.batch_size = config['batch_size']
+        self.batch_size = config['batch_size_model']
 
         self.inverse_dynamics_model = DiagGaussianIDM(
             o_dim= config['model_config']['o_dim'],
@@ -49,34 +49,7 @@ class IDM_learner(object):
         print(f"| - Model of IDM saved to {path} - |")
 
 
-def main():
-    config = {
-        'model_config': {
-            'o_dim': None,
-            'a_dim': None,
-            'policy_hidden_layers': [256, 256],
-            'value_hidden_layers': [256, 256],
-            'dynamics_hidden_layers': [256, 256],
-            'logstd_min': -20,
-            'logstd_max': 2,
-        },
-        'domain_name': 'Walker',
-        'task_name': 'Walk',
-        'seed': 10,
-        'buffer_size': 1000000,
-        'lr': 0.0003,
-        'gamma': 0.99,
-        'tau': 0.001,
-        'batch_size': 256,
-        'initial_alpha': 1,
-        'train_policy_delay': 2,
-        'device': 'cuda',
-        'max_timesteps': 1000000,
-        'eval_interval': 5000,
-        'eval_episode': 10,
-        'result_path': '/home/xukang/GitRepo/ModelBasedRL/results/dmc-sac-idm_test/'
-    }
-    
+def main(config: Dict):
     np.random.seed(config['seed'])
     torch.manual_seed(config['seed'])
     config.update({
@@ -104,7 +77,7 @@ def main():
     inverse_model_learner = IDM_learner(config)
 
     total_step, total_episode = 0, 0
-    best_score = 0
+    best_score, best_accuracy = 0, 0
     obs = env.reset()
     while total_step < config['max_timesteps']:
         action = agent.choose_action(obs, True)
@@ -123,9 +96,6 @@ def main():
 
         if total_step % config['eval_interval'] == 0:
             eval_score = agent.evaluate(env, config['eval_episode'])
-
-            agent.save_policy(config['exp_path'], f'{total_step}')
-            IDM_learner.save_model(config['exp_path'], f'{total_step}')
             if eval_score > best_score:
                 agent.save_policy(config['exp_path'], 'best')
                 best_score = eval_score
@@ -134,7 +104,53 @@ def main():
             logger.add_scalar('Eval/Eval_Return', eval_score, total_step)
             for loss_name, loss_value in list(loss_dict.items()):
                 logger.add_scalar(f'Train/{loss_name}', loss_value, total_step)
+        
+        if total_step % config['save_interval'] == 0:
+            agent.save_policy(config['exp_path'], f'{total_step}')
+            inverse_model_learner.save_model(config['exp_path'], f'{total_step}')
+            if best_accuracy > loss_idm:
+                inverse_model_learner.save_model(config['exp_path'], 'best')
+                best_accuracy = loss_idm
 
         total_step += 1
 
-main()
+if __name__ == '__main__':
+    config = {
+        'model_config': {
+            'o_dim': None,
+            'a_dim': None,
+            'policy_hidden_layers': [256, 256],
+            'value_hidden_layers': [256, 256],
+            'dynamics_hidden_layers': [256, 256],
+            'logstd_min': -20,
+            'logstd_max': 2,
+        },
+        'domain_name': 'reacher',
+        'task_name': 'easy',
+        'seed': 10,
+        'buffer_size': 1000000,
+        'lr': 0.0003,
+        'gamma': 0.99,
+        'tau': 0.001,
+        'batch_size': 256,
+        'batch_size_model': 2000,
+        'initial_alpha': 1,
+        'train_policy_delay': 2,
+        'device': 'cpu',
+        'max_timesteps': 1000000,
+        'eval_interval': 10000,
+        'save_interval': 50000,
+        'eval_episode': 10,
+        'result_path': '/home/xukang/GitRepo/ModelBasedRL/results/dmc-sac-idm_test/'
+    }
+
+    for domain_task in [
+        ('reacher', 'easy'),
+        ('cheetah', 'run'),
+        ('walker', 'walk')
+    ]:
+        config.update({
+            'domain_name': domain_task[0],
+            'task_name': domain_task[1]
+        })
+        main(config)

@@ -77,9 +77,9 @@ class SAC(object):
             q_update_tar = r + (1 - done) * self.gamma * (next_q_tar - self.alpha * next_a_logprob)
         q1_pred, q2_pred = self.value(obs, a)
         loss_q = F.mse_loss(q1_pred, q_update_tar) + F.mse_loss(q2_pred, q_update_tar)
-        self.optimizer_Q.zero_grad()
+        self.optimizer_value.zero_grad()
         loss_q.backward(retain_graph=True)
-        self.optimizer_Q.step()
+        self.optimizer_value.step()
 
         self.logger_loss_q = loss_q.item()
         self.update_count += 1
