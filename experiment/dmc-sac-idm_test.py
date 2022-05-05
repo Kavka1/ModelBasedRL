@@ -23,8 +23,8 @@ class IDM_learner(object):
             o_dim= config['model_config']['o_dim'],
             a_dim= config['model_config']['a_dim'],
             hidden_layers= config['model_config']['dynamics_hidden_layers'],
-            logstd_min= config['model_config']['logstd_min'],
-            logstd_max= config['model_config']['logstd_max']
+            logstd_min= config['model_config']['model_logstd_min'],
+            logstd_max= config['model_config']['model_logstd_max']
         ).to(self.device)
         self.optimizer = torch.optim.Adam(self.inverse_dynamics_model.parameters(), self.lr, weight_decay=0.01)
 
@@ -37,6 +37,7 @@ class IDM_learner(object):
 
         dist = self.inverse_dynamics_model(obs, obs_)
         loss = - dist.log_prob(a).mean()
+        loss += 0.01 * (self.inverse_dynamics_model.logstd_max.sum() - self.inverse_dynamics_model.logstd_min.sum())    # penalty for extreme logstd
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -122,8 +123,10 @@ if __name__ == '__main__':
             'policy_hidden_layers': [256, 256],
             'value_hidden_layers': [256, 256],
             'dynamics_hidden_layers': [256, 256],
-            'logstd_min': -20,
-            'logstd_max': 2,
+            'policy_logstd_min': -20,
+            'policy_logstd_max': 2,
+            'model_logstd_min': -10,
+            'model_logstd_max': 0.5,
         },
         'domain_name': 'reacher',
         'task_name': 'easy',
