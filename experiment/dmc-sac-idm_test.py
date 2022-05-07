@@ -36,8 +36,8 @@ class IDM_learner(object):
         obs, a, r, done, obs_ = array2tensor(obs, a, r, done, obs_, self.device)
 
         dist = self.inverse_dynamics_model(obs, obs_)
-        loss = - dist.log_prob(a).mean() 
-        loss += 0.01 * (self.inverse_dynamics_model.logstd_max.sum() - self.inverse_dynamics_model.logstd_min.sum())# Penalty for two high or two low variance
+        loss = - dist.log_prob(a).mean()
+        loss += 0.01 * (self.inverse_dynamics_model.logstd_max.sum() - self.inverse_dynamics_model.logstd_min.sum())    # penalty for extreme logstd
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -126,7 +126,7 @@ if __name__ == '__main__':
             'policy_logstd_min': -20,
             'policy_logstd_max': 2,
             'model_logstd_min': -10,
-            'model_logstd_max': 0.5
+            'model_logstd_max': 0.5,
         },
         'domain_name': 'reacher',
         'task_name': 'easy',
