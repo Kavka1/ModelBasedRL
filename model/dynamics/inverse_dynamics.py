@@ -52,8 +52,8 @@ class DiagGaussianIDM(nn.Module):
             inter_activation= 'ReLU',
             output_activation= 'Identity'
         )
-        self.logstd_min = nn.Parameter(torch.ones(size=(self.a_dim,)).float() * logstd_min, requires_grad=False) 
-        self.logstd_max = nn.Parameter(torch.ones(size=(self.a_dim,)).float() * logstd_max, requires_grad=False)
+        self.logstd_min = nn.Parameter(torch.ones(size=(self.a_dim,)).float() * logstd_min, requires_grad=True) 
+        self.logstd_max = nn.Parameter(torch.ones(size=(self.a_dim,)).float() * logstd_max, requires_grad=True)
 
     def __call__(self, obs: torch.tensor, obs_: torch.tensor) -> torch.distributions.Distribution:
         x = torch.concat([obs, obs_], dim=-1)

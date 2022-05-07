@@ -34,9 +34,9 @@ class SAC(object):
         o_dim, a_dim = self.model_config['o_dim'], self.model_config['a_dim']
         policy_hiddens = self.model_config['policy_hidden_layers']
         value_hiddens = self.model_config['value_hidden_layers']
-        logstd_min, logstd_max = self.model_config['logstd_min'], self.model_config['logstd_max']
+        policy_logstd_min, policy_logstd_max = self.model_config['policy_logstd_min'], self.model_config['policy_logstd_max']
 
-        self.policy = DiagGaussianPolicy(o_dim, a_dim, policy_hiddens, logstd_min, logstd_max).to(self.device)
+        self.policy = DiagGaussianPolicy(o_dim, a_dim, policy_hiddens, policy_logstd_min, policy_logstd_max).to(self.device)
         self.value = TwinQFunction(o_dim, a_dim, value_hiddens).to(self.device)
         self.value_tar = TwinQFunction(o_dim, a_dim, value_hiddens).to(self.device)
         hard_update(self.value, self.value_tar)
