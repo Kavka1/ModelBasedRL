@@ -1,6 +1,7 @@
 from dis import dis
 from typing import List, Tuple, Dict, Union
 import numpy as np
+import os
 import torch
 import yaml
 import datetime
@@ -36,13 +37,15 @@ class IDM_learner(object):
         obs, a, r, done, obs_ = buffer.sample(self.batch_size)
         obs, a, r, done, obs_ = array2tensor(obs, a, r, done, obs_, self.device)
 
+        return self.train_with_batch(obs, a, obs_)
+
+    def train_with_batch(self, obs: torch.tensor, a: torch.tensor, obs_: torch.tensor) -> float:
         dist = self.inverse_dynamics_model(obs, obs_)
         loss = - dist.log_prob(a).mean()
         loss += 0.01 * (self.inverse_dynamics_model.logstd_max.sum() - self.inverse_dynamics_model.logstd_min.sum())    # penalty for extreme logstd
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-
         return loss.item()
 
     def save_model(self, path: str, remark: str) -> None:
@@ -54,10 +57,13 @@ class IDM_learner(object):
 def main(config: Dict):
     np.random.seed(config['seed'])
     torch.manual_seed(config['seed'])
-    config.update({
-        'exp_path': config['result_path'] + f"Walker_missing_{config['missing_joint']}-{config['seed']}/"
-    })
+    
+    exp_path = config['result_path'] + f"Walker_missing_{config['missing_joint']}-{config['seed']}"
+    while os.path.exists(exp_path):
+        exp_path += '_*'
+    config.update({'exp_path': exp_path + '/'})
     check_path(config['exp_path'])
+
     logger = SummaryWriter(config['exp_path'])
 
     env = Missing_Joint_Vel_Walker(config['missing_joint'])
@@ -73,16 +79,14 @@ def main(config: Dict):
     inverse_model_learner = IDM_learner(config)
 
     total_step, total_episode = 0, 0
-    best_score, best_accuracy = 0, 0
+    best_score, best_accuracy = 0, 1
     obs = env.reset()
-    while total_step < config['max_timesteps']:
+    while total_step <= config['max_timesteps']:
         action = agent.choose_action(obs, True)
         next_obs, reward, done, info = env.step(action)
         buffer.save_trans((obs, action, reward, done, next_obs))
         
-        loss_dict = agent.train_ac(buffer)
-        loss_idm = inverse_model_learner.train(buffer)
-        loss_dict.update({'loss_IDM': loss_idm})
+        loss_dict = agent.train_ac_inverse_model(buffer, inverse_model_learner)
 
         if done:
             total_episode += 1
@@ -104,9 +108,9 @@ def main(config: Dict):
         if total_step % config['save_interval'] == 0:
             agent.save_policy(config['exp_path'], f'{total_step}')
             inverse_model_learner.save_model(config['exp_path'], f'{total_step}')
-            if best_accuracy > loss_idm:
+            if best_accuracy > loss_dict['loss_IDM']:
                 inverse_model_learner.save_model(config['exp_path'], 'best')
-                best_accuracy = loss_idm
+                best_accuracy = loss_dict['loss_IDM']
 
         total_step += 1
 
@@ -130,7 +134,7 @@ if __name__ == '__main__':
         'gamma': 0.99,
         'tau': 0.001,
         'batch_size': 256,
-        'batch_size_model': 2000,
+        'batch_size_model': 256,
         'initial_alpha': 1,
         'train_policy_delay': 2,
         'device': 'cpu',

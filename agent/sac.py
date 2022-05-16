@@ -70,6 +70,7 @@ class SAC(object):
         obs, a, r, done, obs_ = buffer.sample(self.batch_size)
         obs, a, r, done, obs_ = array2tensor(obs, a, r, done, obs_, self.device)
 
+
         with torch.no_grad():
             next_a, next_a_logprob, dist = self.policy(obs_)
             next_q1_tar, next_q2_tar = self.value_tar(obs_, next_a)
@@ -109,6 +110,64 @@ class SAC(object):
             'loss_q': self.logger_loss_q, 
             'loss_policy': self.logger_loss_policy, 
             'loss_alpha': self.logger_loss_alpha, 
+            'alpha': self.logger_alpha
+        }
+
+    def train_ac_inverse_model(self, buffer: Buffer, inverse_model_learner) -> Dict:
+        if len(buffer) < self.batch_size:
+            return {
+                'loss_q': 0, 
+                'loss_policy': 0, 
+                'loss_alpha': 0, 
+                'loss_IDM':  0,
+                'alpha': self.logger_alpha
+            }
+
+        obs, a, r, done, obs_ = buffer.sample(self.batch_size)
+        obs, a, r, done, obs_ = array2tensor(obs, a, r, done, obs_, self.device)
+
+        loss_idm = inverse_model_learner.train_with_batch(obs, a, obs_)
+
+        with torch.no_grad():
+            next_a, next_a_logprob, dist = self.policy(obs_)
+            next_q1_tar, next_q2_tar = self.value_tar(obs_, next_a)
+            next_q_tar = torch.min(next_q1_tar, next_q2_tar)
+            q_update_tar = r + (1 - done) * self.gamma * (next_q_tar - self.alpha * next_a_logprob)
+        q1_pred, q2_pred = self.value(obs, a)
+        loss_q = F.mse_loss(q1_pred, q_update_tar) + F.mse_loss(q2_pred, q_update_tar)
+        self.optimizer_value.zero_grad()
+        loss_q.backward(retain_graph=True)
+        self.optimizer_value.step()
+
+        self.logger_loss_q = loss_q.item()
+        self.update_count += 1
+
+        if self.update_count % self.train_policy_delay == 0:
+            a_new, a_new_logprob, dist_new = self.policy(obs)
+            loss_policy = (self.alpha * a_new_logprob - self.value.call_Q1(obs, a_new)).mean()
+            self.optimizer_policy.zero_grad()
+            loss_policy.backward()
+            self.optimizer_policy.step()
+
+            a_new_logprob = torch.tensor(a_new_logprob.tolist(), requires_grad=False, device=self.device)
+            loss_alpha = (- torch.exp(self.log_alpha) * (a_new_logprob + self.target_entropy)).mean()
+            self.optimizer_alpha.zero_grad()
+            loss_alpha.backward()
+            self.optimizer_alpha.step()
+
+            self.alpha = torch.exp(self.log_alpha)
+
+            self.logger_alpha = self.alpha.item()
+            self.logger_loss_alpha = loss_alpha.item()
+            self.logger_loss_policy = loss_policy.item()
+            
+        soft_update(self.value, self.value_tar, self.tau)
+
+        return {
+            'loss_q': self.logger_loss_q, 
+            'loss_policy': self.logger_loss_policy, 
+            'loss_alpha': self.logger_loss_alpha,
+            'loss_IDM': loss_idm, 
             'alpha': self.logger_alpha
         }
 
