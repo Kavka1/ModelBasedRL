@@ -11,8 +11,10 @@ from ModelBasedRL.env.lack_obs_wrap.walker import Missing_Joint_Vel_Walker
 
 from ModelBasedRL.agent.utils import check_path, array2tensor
 from ModelBasedRL.agent.sac import SAC
+from ModelBasedRL.model.policy.flat_policy import DiagGaussianPolicy
 from ModelBasedRL.buffer.trans_buffer import Buffer
 from ModelBasedRL.model.dynamics.inverse_dynamics import DiagGaussianIDM
+from ModelBasedRL.model.dynamics.forward_dynamics import DiagGaussianFDM
 
 
 class IDM_learner(object):
@@ -54,11 +56,56 @@ class IDM_learner(object):
         print(f"| - Model of IDM saved to {path} - |")
 
 
-def main(config: Dict):
+
+class FDM_learner(object):
+    def __init__(self, config: Dict) -> None:
+        self.lr = config['lr']
+        self.device = torch.device(config['device'])
+        self.batch_size = config['batch_size_model']
+
+        self.forward_dynamics_model = DiagGaussianFDM(
+            o_dim= config['model_config']['o_dim'],
+            a_dim= config['model_config']['a_dim'],
+            hidden_layers= config['model_config']['dynamics_hidden_layers'],
+            logstd_min= config['model_config']['model_logstd_min'],
+            logstd_max= config['model_config']['model_logstd_max']
+        ).to(self.device)
+        self.optimizer = torch.optim.Adam(self.forward_dynamics_model.parameters(), self.lr, weight_decay=0.01)
+
+    def train(self, buffer: Buffer) -> float:
+        if len(buffer) < self.batch_size:
+            return 0.
+
+        obs, a, r, done, obs_ = buffer.sample(self.batch_size)
+        obs, a, r, done, obs_ = array2tensor(obs, a, r, done, obs_, self.device)
+
+        return self.train_with_batch(obs, a, obs_)
+
+    def train_with_batch(self, obs: torch.tensor, a: torch.tensor, obs_: torch.tensor) -> float:
+        dist = self.forward_dynamics_model(obs, a)
+        loss = - dist.log_prob(obs_).mean()
+        loss += 0.01 * (self.forward_dynamics_model.logstd_max.sum() - self.forward_dynamics_model.logstd_min.sum())    # penalty for extreme logstd
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return loss.item()
+
+    def save_model(self, path: str, remark: str) -> None:
+        check_path(path)
+        torch.save(self.forward_dynamics_model.state_dict(), path+f'FDM_{remark}')
+        print(f"| - Model of FDM saved to {path} - |")
+
+
+
+def main(config: Dict, exp_name: str = ''):
     np.random.seed(config['seed'])
     torch.manual_seed(config['seed'])
-    
-    exp_path = config['result_path'] + f"Walker_missing_{config['missing_joint']}-{config['seed']}"
+    # make experiment file dir
+    if exp_name is not '':
+        exp_file = f'{exp_name}-' + f"Walker-missing_{config['missing_joint']}-{config['seed']}"
+    else:
+        exp_file = f"Walker-missing_{config['missing_joint']}-{config['seed']}"
+    exp_path = config['result_path'] + exp_file
     while os.path.exists(exp_path):
         exp_path += '_*'
     config.update({'exp_path': exp_path + '/'})
@@ -77,16 +124,17 @@ def main(config: Dict):
     agent = SAC(config)
     buffer = Buffer(config['buffer_size'])
     inverse_model_learner = IDM_learner(config)
+    forward_model_learner = FDM_learner(config)
 
     total_step, total_episode = 0, 0
-    best_score, best_accuracy = 0, 1
+    best_score, best_accuracy_idm, best_accuracy_fdm = 0, 1, 1
     obs = env.reset()
     while total_step <= config['max_timesteps']:
         action = agent.choose_action(obs, True)
         next_obs, reward, done, info = env.step(action)
         buffer.save_trans((obs, action, reward, done, next_obs))
         
-        loss_dict = agent.train_ac_inverse_model(buffer, inverse_model_learner)
+        loss_dict = agent.train_ac_and_models(buffer, inverse_model_learner, forward_model_learner)
 
         if done:
             total_episode += 1
@@ -108,11 +156,45 @@ def main(config: Dict):
         if total_step % config['save_interval'] == 0:
             agent.save_policy(config['exp_path'], f'{total_step}')
             inverse_model_learner.save_model(config['exp_path'], f'{total_step}')
-            if best_accuracy > loss_dict['loss_IDM']:
+            forward_model_learner.save_model(config['exp_path'], f'{total_step}')
+            if best_accuracy_idm > loss_dict['loss_IDM']:
                 inverse_model_learner.save_model(config['exp_path'], 'best')
-                best_accuracy = loss_dict['loss_IDM']
+                best_accuracy_idm = loss_dict['loss_IDM']
+            if best_accuracy_fdm > loss_dict['loss_FDM']:
+                forward_model_learner.save_model(config['exp_path'], 'best')
+                best_accuracy_fdm = loss_dict['loss_FDM']
 
         total_step += 1
+
+
+def demo(path: str, remark: str) -> None:
+    with open(path + 'config.yaml', 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    
+    policy = DiagGaussianPolicy(
+        config['model_config']['o_dim'],
+        config['model_config']['a_dim'],
+        config['model_config']['policy_hidden_layers'],
+        config['model_config']['policy_logstd_min'],
+        config['model_config']['policy_logstd_max'],
+    )
+    policy.load_model(path + f'policy_{remark}')
+    env = Missing_Joint_Vel_Walker(config['missing_joint'])
+
+    for _ in range(100):
+        done = False
+        episode_r = 0
+        obs = env.reset()
+        while not done:
+            env.render()
+            obs = torch.from_numpy(obs).float()
+            a = policy.act(obs, False)
+            obs, r, done, info = env.step(a)
+            episode_r += r
+        print(f"Episode {_} Episode Reward {episode_r}")
+
+
+
 
 if __name__ == '__main__':
     config = {
@@ -129,7 +211,7 @@ if __name__ == '__main__':
         },
         'missing_joint': ['thigh', 'leg', 'thigh'],
         'seed': 10,
-        'buffer_size': 1000000,
+        'buffer_size': 800000,
         'lr': 0.0003,
         'gamma': 0.99,
         'tau': 0.001,
@@ -137,15 +219,16 @@ if __name__ == '__main__':
         'batch_size_model': 256,
         'initial_alpha': 1,
         'train_policy_delay': 2,
-        'device': 'cpu',
-        'max_timesteps': 1000000,
+        'device': 'cuda',
+        'max_timesteps': 800000,
         'eval_interval': 20000,
-        'save_interval': 50000,
-        'eval_episode': 10,
+        'save_interval': 100000,
+        'eval_episode': 5,
         'result_path': '/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/'
     }
 
     for missing_jnt in [
+        [],
         ['foot'],
         ['foot', 'leg'],
         ['foot', 'leg', 'thigh']
@@ -153,4 +236,6 @@ if __name__ == '__main__':
         config.update({
             'missing_joint': missing_jnt
         })
-        main(config)
+        main(config, 'both_model')
+
+    #demo("/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/Walker_missing_['foot', 'leg', 'thigh']-10/", 'best')

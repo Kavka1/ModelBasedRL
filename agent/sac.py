@@ -113,13 +113,14 @@ class SAC(object):
             'alpha': self.logger_alpha
         }
 
-    def train_ac_inverse_model(self, buffer: Buffer, inverse_model_learner) -> Dict:
+    def train_ac_and_models(self, buffer: Buffer, inverse_model_learner, forward_model_learner) -> Dict:
         if len(buffer) < self.batch_size:
             return {
                 'loss_q': 0, 
                 'loss_policy': 0, 
                 'loss_alpha': 0, 
                 'loss_IDM':  0,
+                'loss_FDM': 0,
                 'alpha': self.logger_alpha
             }
 
@@ -127,6 +128,7 @@ class SAC(object):
         obs, a, r, done, obs_ = array2tensor(obs, a, r, done, obs_, self.device)
 
         loss_idm = inverse_model_learner.train_with_batch(obs, a, obs_)
+        loss_fdm = forward_model_learner.train_with_batch(obs, a, obs_)
 
         with torch.no_grad():
             next_a, next_a_logprob, dist = self.policy(obs_)
@@ -168,6 +170,7 @@ class SAC(object):
             'loss_policy': self.logger_loss_policy, 
             'loss_alpha': self.logger_loss_alpha,
             'loss_IDM': loss_idm, 
+            'loss_FDM': loss_fdm,
             'alpha': self.logger_alpha
         }
 

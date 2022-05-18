@@ -212,10 +212,10 @@ if __name__ == '__main__':
     '''
     plot_pred_var_difference(
         all_path= [
-            "/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/Walker_missing_[]-10/",
-            "/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/Walker_missing_['foot']-10/",
-            "/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/Walker_missing_['foot', 'leg']-10/",
-            "/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/Walker_missing_['foot', 'leg', 'thigh']-10/",
+            "/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/both_model-Walker-missing_[]-10/",
+            "/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/both_model-Walker-missing_['foot']-10/",
+            "/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/both_model-Walker-missing_['foot', 'leg']-10/",
+            "/home/xukang/GitRepo/ModelBasedRL/results/missing_obs_test/both_model-Walker-missing_['foot', 'leg', 'thigh']-10/",
         ],
-        remark= 'best',
+        remark= '800000',
     )
