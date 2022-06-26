@@ -2,15 +2,59 @@ from typing import List, Dict, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import PathPatch
 import seaborn as sns
 import torch
 import yaml
+from cycler import cycler
 import torch.nn as nn
 
 from ModelBasedRL.model.dynamics.inverse_dynamics import DiagGaussianIDM
 from ModelBasedRL.model.dynamics.forward_dynamics import DiagGaussianFDM
 from ModelBasedRL.model.policy.flat_policy import DiagGaussianPolicy
 from ModelBasedRL.env.lack_obs_wrap.walker import Missing_Joint_Vel_Walker
+
+
+plt.rcParams['axes.prop_cycle']  = cycler(color=['#4E79A7', '#F28E2B', '#E15759', '#76B7B2','#59A14E',
+                                                 '#EDC949','#B07AA2','#FF9DA7','#9C755F','#BAB0AC'])
+
+
+def adjust_box_widths(g, fac):
+    """
+    Adjust the widths of a seaborn-generated boxplot.
+    """
+
+    # iterating through Axes instances
+    for ax in g.axes:
+
+        # iterating through axes artists:
+        for c in ax.get_children():
+
+            # searching for PathPatches
+            if isinstance(c, PathPatch):
+                # getting current width of box:
+                p = c.get_path()
+                verts = p.vertices
+                verts_sub = verts[:-1]
+                xmin = np.min(verts_sub[:, 0])
+                xmax = np.max(verts_sub[:, 0])
+                xmid = 0.5*(xmin+xmax)
+                xhalf = 0.5*(xmax - xmin)
+
+                # setting new width of box
+                xmin_new = xmid-fac*xhalf
+                xmax_new = xmid+fac*xhalf
+                verts_sub[verts_sub[:, 0] == xmin, 0] = xmin_new
+                verts_sub[verts_sub[:, 0] == xmax, 0] = xmax_new
+
+                # setting new width of median line
+                for l in ax.lines:
+                    xdata = l.get_xdata()
+                    
+                    if np.all(l.get_xdata() == [xmin, xmax]):
+                        l.set_xdata([xmin_new, xmax_new])
+                    elif len(xdata) == 2 and xdata[0]> xmin and xdata[1] < xmax and xdata[0]!=xdata[1]:
+                        l.set_xdata([xmid-fac*0.6*xhalf, xmid+fac*0.6*xhalf])
 
 
 def load_both_model(exp_path: str, model_config: Dict, remark: str) -> Tuple[nn.Module, nn.Module]:
@@ -113,10 +157,10 @@ def performance_and_model_variance_plot(all_path: List[str], remark: str) -> Non
             fdm_obs_seq_dist[f'fdm_{i}'].append(obs_pred_dict)
     
     all_labels = [
-        'missing none obs info',
-        'missing foot velocity info',
-        'missing foot & leg velocity info',
-        'missing foot & leg & thigh velocity info'
+        'Full state info',
+        'W/o velocity info of foot',
+        'W/o velocity info of foot & leg',
+        'W/o velocity info of foot & leg & thigh'
     ]
     model2missingobs = {
         f'idm_{k}': all_labels[k] for k in range(len(all_idm))
@@ -125,11 +169,12 @@ def performance_and_model_variance_plot(all_path: List[str], remark: str) -> Non
         f'fdm_{k}': all_labels[k] for k in range(len(all_fdm))
     })
 
-    sns.set_style('whitegrid')
-    sns.set_theme('paper')
-    sns.set_palette('Set2')
-    fig, axs = plt.subplots(1 , 3, figsize=(15, 4), tight_layout=True)
+    sns.set_style('white')
+    #sns.set_theme('paper')
+    #sns.set_palette('Set2')
+    fig, ax = plt.subplots(1 , 1, figsize=(5.5, 5), tight_layout=True)
     df_performance, df_idm, df_fdm = [], [], []
+    data_idm = []
     for k in range(len(all_idm)):
         
         policy_performance = rollout(all_policy[k], all_env[k], 30)
@@ -152,8 +197,10 @@ def performance_and_model_variance_plot(all_path: List[str], remark: str) -> Non
             'model': [model2missingobs[f'fdm_{k}']] * len(obs_pred_vars)
         }))
 
+        data_idm.append(np.array([np.mean(a_pred_var) for a_pred_var in a_pred_vars], dtype=np.float64))
 
     # plot for policy performance
+    '''
     ax = axs[0]
     df = pd.concat(df_performance)
     sns.barplot(
@@ -170,26 +217,35 @@ def performance_and_model_variance_plot(all_path: List[str], remark: str) -> Non
     ax.set_title("Policy performance in different setting", fontsize=11)
     ax.set_xlabel('Policy Performance', fontsize=11)
     ax.set_ylabel('Return', fontsize=10)
-
+    '''
 
     # plot for inverse model prediction
-    ax = axs[1]
     df = pd.concat(df_idm)
-    sns.violinplot(
+    #ax.boxplot(data_idm)
+
+
+
+    sns.boxplot(
         data=df,
         x='pred_type',
         y='prediction variance',
         hue='model',
         ax=ax,
         #ci='sd',
+        #width=0.2,
         linewidth=2
     )
+
     ax.set_xticklabels([''])
-    ax.set_title("Variance of A|S,S' in different setting", fontsize=11)
-    ax.set_xlabel("Var(A|S,S')", fontsize=11)
-    ax.set_ylabel('Prediction Variance of Inverse Dynamics Models', fontsize=10)
+    ax.legend().set_title('')
+    ax.set_title("Prediction variance of IDMs in different state settings", fontsize=12)
+    ax.set_xlabel("", fontsize=11)
+    ax.set_ylabel('Prediction Variance of IDM', fontsize=12)
+
+    adjust_box_widths(fig, 0.3)
 
     # plot for inverse model prediction
+    '''
     ax = axs[2]
     df = pd.concat(df_fdm)
     sns.violinplot(
@@ -205,13 +261,14 @@ def performance_and_model_variance_plot(all_path: List[str], remark: str) -> Non
     ax.set_title("Variance of S'|S,A in different setting", fontsize=11)
     ax.set_xlabel("Var(S'|S,A)", fontsize=11)
     ax.set_ylabel('Prediction Variance of Forward Dynamics Models', fontsize=10)
-
+    '''
+    '''
     for i in range(len(axs)):
         if i == 0:
             axs[i].legend().set_title('')
         else:
             axs[i].legend().remove()
-
+    '''
     plt.show()
 
 
