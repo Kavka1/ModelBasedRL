@@ -172,7 +172,7 @@ def performance_and_model_variance_plot(all_path: List[str], remark: str) -> Non
     sns.set_style('white')
     #sns.set_theme('paper')
     #sns.set_palette('Set2')
-    fig, ax = plt.subplots(1 , 1, figsize=(5.5, 5), tight_layout=True)
+    fig, ax = plt.subplots(1 , 1, figsize=(6.6, 5), tight_layout=True)
     df_performance, df_idm, df_fdm = [], [], []
     data_idm = []
     for k in range(len(all_idm)):
@@ -238,9 +238,9 @@ def performance_and_model_variance_plot(all_path: List[str], remark: str) -> Non
 
     ax.set_xticklabels([''])
     ax.legend().set_title('')
-    ax.set_title("Prediction variance of IDMs in different state settings", fontsize=12)
+    ax.set_title("Inference variance of IDMs under different state settings of Walker2D", fontsize=12)
     ax.set_xlabel("", fontsize=11)
-    ax.set_ylabel('Prediction Variance of IDM', fontsize=12)
+    ax.set_ylabel('Inference Variance of IDM', fontsize=12)
 
     adjust_box_widths(fig, 0.3)
 
