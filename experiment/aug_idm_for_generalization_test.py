@@ -1,7 +1,9 @@
+from copy import copy
 from typing import List, Tuple, Dict, Union
 import numpy as np
 import os
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import gym
 import yaml
@@ -15,20 +17,23 @@ from ModelBasedRL.model.dynamics.inverse_dynamics import DiagGaussianIDM
 
 
 
-def action_augmentation(action_batch: np.array, delta: float, noise_range: List[float, float]) -> np.array:
+def action_augmentation(action_batch: torch.tensor, delta: float, noise_range: List[float]) -> np.array:
     batch_size  = action_batch.shape[0]
     action_dim  = action_batch.shape[1]
+
     noise_batch_for_a = np.random.uniform(
-        low  = noise_range[0],
-        high = noise_range[1],
-        size = (batch_size, action_dim)
-    )
-    augmented_action_batch = action_batch + noise_batch_for_a * delta
+        noise_range[0],
+        noise_range[1],
+        (batch_size, action_dim),
+    ) * delta
+    noise_batch_for_a = torch.from_numpy(noise_batch_for_a).to(action_batch.device).float()
+
+    augmented_action_batch = copy(action_batch) + noise_batch_for_a
     return augmented_action_batch
 
 
 class IDM_learner_under_augmentation(object):
-    def __init__(self, config: Dict, delta: float, noise_range: List[float, float]) -> None:
+    def __init__(self, config: Dict, delta: float, noise_range: List[float]) -> None:
         self.lr = config['lr']
         self.device = torch.device(config['device'])
         self.batch_size = config['batch_size_model']
@@ -87,7 +92,8 @@ class SAC_with_multiple_IDM(SAC):
                 'alpha': self.logger_alpha
             }
             for _ in range(len(all_idms)):
-                log.update({f'idm_{_}': 0.})
+                log.update({f'loss_idm_{_}': 0.})
+            return log
 
         obs, a, r, done, obs_ = buffer.sample(self.batch_size)
         obs, a, r, done, obs_ = array2tensor(obs, a, r, done, obs_, self.device)
@@ -115,6 +121,7 @@ class SAC_with_multiple_IDM(SAC):
             loss_policy = (self.alpha * a_new_logprob - self.value.call_Q1(obs, a_new)).mean()
             self.optimizer_policy.zero_grad()
             loss_policy.backward()
+            nn.utils.clip_grad_norm_(self.policy.parameters(), 0.1)
             self.optimizer_policy.step()
 
             a_new_logprob = torch.tensor(a_new_logprob.tolist(), requires_grad=False, device=self.device)
@@ -138,7 +145,7 @@ class SAC_with_multiple_IDM(SAC):
             'alpha': self.logger_alpha
         }
         for i in range(len(all_idms)):
-            log.update({f'idm_{i}': idm_losses[i]})
+            log.update({f'loss_idm_{i}': idm_losses[i]})
         return log
 
 
@@ -171,7 +178,7 @@ def main(config: Dict, exp_name: str = ''):
     buffer = Buffer(config['buffer_size'])
 
     all_idm_learners = []
-    for delta in range(config['deltas']):
+    for delta in config['deltas']:
         all_idm_learners.append(
             IDM_learner_under_augmentation(config, delta, config['noise_range'])
         )    
@@ -207,17 +214,17 @@ def main(config: Dict, exp_name: str = ''):
         if total_step % config['save_interval'] == 0:
             agent.save_policy(config['exp_path'], f'{total_step}')
             for i, idm_learner in enumerate(all_idm_learners):
-                idm_learner.save_model(config['exp_path'], f'{total_step}')
-                if all_idm_best_acc[i] > loss_dict[f'idm_{i}']:
-                    idm_learner.save_model(config['exp_path'], 'best')
-                    all_idm_best_acc[i] = loss_dict[f'idm_{i}']
+                idm_learner.save_model(config['exp_path'], f'{i}_{total_step}')
+                if all_idm_best_acc[i] > loss_dict[f'loss_idm_{i}']:
+                    idm_learner.save_model(config['exp_path'], f'{i}_best')
+                    all_idm_best_acc[i] = loss_dict[f'loss_idm_{i}']
 
         total_step += 1
 
     # save the final models
     agent.save_policy(config['exp_path'], 'final')
     for i, idm_learner in enumerate(all_idm_learners):
-        idm_learner.save_model(config['exp_path'], 'final')
+        idm_learner.save_model(config['exp_path'], f'{i}_final')
 
 
 
@@ -246,9 +253,9 @@ if __name__ == '__main__':
         'batch_size_model': 256,
         'initial_alpha': 1,
         'train_policy_delay': 2,
-        'device': 'cuda',
+        'device': 'cpu',
         'max_timesteps': 1000000,
-        'eval_interval': 20000,
+        'eval_interval': 2000,
         'save_interval': 100000,
         'eval_episode': 5,
         'result_path': '/home/xukang/GitRepo/ModelBasedRL/results/aug_idm_test/'

@@ -56,7 +56,7 @@ class DiagGaussianPolicy(nn.Module):
             o_dim,
             a_dim * 2,
             hidden_layers,
-            inter_activation='Tanh',
+            inter_activation='ReLU',
             output_activation='Identity'
         )
         self.logstd_min = nn.Parameter(torch.ones(size=(a_dim,)) * logstd_min, requires_grad=False)
