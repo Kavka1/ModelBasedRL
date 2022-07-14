@@ -70,7 +70,6 @@ class SAC(object):
         obs, a, r, done, obs_ = buffer.sample(self.batch_size)
         obs, a, r, done, obs_ = array2tensor(obs, a, r, done, obs_, self.device)
 
-
         with torch.no_grad():
             next_a, next_a_logprob, dist = self.policy(obs_)
             next_q1_tar, next_q2_tar = self.value_tar(obs_, next_a)
@@ -113,7 +112,7 @@ class SAC(object):
             'alpha': self.logger_alpha
         }
 
-    def train_ac_and_models(self, buffer: Buffer, inverse_model_learner, forward_model_learner) -> Dict:
+    def train_ac_and_models(self, buffer: Buffer, inverse_model_learner = None, forward_model_learner = None) -> Dict:
         if len(buffer) < self.batch_size:
             return {
                 'loss_q': 0, 
