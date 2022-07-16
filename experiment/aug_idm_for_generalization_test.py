@@ -1,4 +1,4 @@
-from copy import copy
+from copy import copy, deepcopy
 from typing import List, Tuple, Dict, Union
 import numpy as np
 import os
@@ -78,7 +78,6 @@ class IDM_learner_under_augmentation(object):
         print(f"| - Model of IDM saved to {path} - |")
 
 
-
 class SAC_with_multiple_IDM(SAC):
     def __init__(self, config: Dict) -> None:
         super().__init__(config)
@@ -100,7 +99,7 @@ class SAC_with_multiple_IDM(SAC):
 
         idm_losses = []
         for idm in all_idms:
-            idm_losses.append(idm.train_with_batch(obs, a, obs_))
+            idm_losses.append(idm.train_with_batch(deepcopy(obs), deepcopy(a), deepcopy(obs_)))
 
         with torch.no_grad():
             next_a, next_a_logprob, dist = self.policy(obs_)
@@ -147,7 +146,6 @@ class SAC_with_multiple_IDM(SAC):
         for i in range(len(all_idms)):
             log.update({f'loss_idm_{i}': idm_losses[i]})
         return log
-
 
 
 def main(config: Dict, exp_name: str = ''):
@@ -241,7 +239,7 @@ if __name__ == '__main__':
             'model_logstd_min': -10,
             'model_logstd_max': 0.5,
         },
-        'deltas': [0.2, 0.4, 0.6, 0.8],
+        'deltas': [2, 4, 6, 8],
         'noise_range': [-0.1, 0.1],
 
         'seed': 10,
@@ -253,12 +251,12 @@ if __name__ == '__main__':
         'batch_size_model': 256,
         'initial_alpha': 1,
         'train_policy_delay': 2,
-        'device': 'cpu',
+        'device': 'cuda',
         'max_timesteps': 1000000,
         'eval_interval': 2000,
         'save_interval': 100000,
         'eval_episode': 5,
-        'result_path': '/home/xukang/GitRepo/ModelBasedRL/results/aug_idm_test/'
+        'result_path': '/data/xukang/Project/ModelBasedRL/results/aug_idm_test/'
     }
 
     main(config, '')
